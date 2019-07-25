@@ -5,6 +5,8 @@
  */
 package org.elasticsearch.xpack.ml.dataframe.extractor;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ResourceNotFoundException;
 import org.elasticsearch.action.fieldcaps.FieldCapabilities;
 import org.elasticsearch.action.fieldcaps.FieldCapabilitiesResponse;
@@ -35,25 +37,15 @@ import java.util.stream.Stream;
 
 public class ExtractedFieldsDetector {
 
+    private static final Logger LOGGER = LogManager.getLogger(ExtractedFieldsDetector.class);
+
     /**
      * Fields to ignore. These are mostly internal meta fields.
      */
     private static final List<String> IGNORE_FIELDS = Arrays.asList("_id", "_field_names", "_index", "_parent", "_routing", "_seq_no",
         "_source", "_type", "_uid", "_version", "_feature", "_ignored");
 
-    /**
-     * The types supported by data frames
-     */
-    private static final Set<String> COMPATIBLE_FIELD_TYPES;
-
-    static {
-        Set<String> compatibleTypes = Stream.of(NumberFieldMapper.NumberType.values())
-            .map(NumberFieldMapper.NumberType::typeName)
-            .collect(Collectors.toSet());
-        compatibleTypes.add("scaled_float"); // have to add manually since scaled_float is in a module
-
-        COMPATIBLE_FIELD_TYPES = Collections.unmodifiableSet(compatibleTypes);
-    }
+    private static final Set<String> CATEGORICAL_TYPES = new HashSet<>(Arrays.asList("text", "keyword", "ip"));
 
     private final String[] index;
     private final DataFrameAnalyticsConfig config;
@@ -79,13 +71,13 @@ public class ExtractedFieldsDetector {
         // Ignore fields under the results object
         fields.removeIf(field -> field.startsWith(config.getDest().getResultsField() + "."));
 
+        includeAndExcludeFields(fields);
         removeFieldsWithIncompatibleTypes(fields);
-        includeAndExcludeFields(fields, index);
+
         List<String> sortedFields = new ArrayList<>(fields);
         // We sort the fields to ensure the checksum for each document is deterministic
         Collections.sort(sortedFields);
-        ExtractedFields extractedFields = ExtractedFields.build(sortedFields, Collections.emptySet(), fieldCapabilitiesResponse)
-            .filterFields(ExtractedField.ExtractionMethod.DOC_VALUE);
+        ExtractedFields extractedFields = ExtractedFields.build(sortedFields, Collections.emptySet(), fieldCapabilitiesResponse);
         if (extractedFields.getAllFields().isEmpty()) {
             throw ExceptionsHelper.badRequestException("No compatible fields could be detected in index {}", Arrays.toString(index));
         }
@@ -116,17 +108,35 @@ public class ExtractedFieldsDetector {
     }
 
     private void removeFieldsWithIncompatibleTypes(Set<String> fields) {
+        Set<String> compatibleTypes = determineCompatibleTypes();
         Iterator<String> fieldsIterator = fields.iterator();
         while (fieldsIterator.hasNext()) {
             String field = fieldsIterator.next();
             Map<String, FieldCapabilities> fieldCaps = fieldCapabilitiesResponse.getField(field);
-            if (fieldCaps == null || COMPATIBLE_FIELD_TYPES.containsAll(fieldCaps.keySet()) == false) {
+            if (fieldCaps == null || compatibleTypes.containsAll(fieldCaps.keySet()) == false) {
+                LOGGER.debug("[{}] Removing field [{}] as it does not much compatible types {}", config.getId(), field, compatibleTypes);
                 fieldsIterator.remove();
             }
         }
     }
 
-    private void includeAndExcludeFields(Set<String> fields, String[] index) {
+    private Set<String> determineCompatibleTypes() {
+
+        // First add numeric types which are compatible with all analysis types
+        Set<String> compatibleTypes = Stream.of(NumberFieldMapper.NumberType.values())
+            .map(NumberFieldMapper.NumberType::typeName)
+            .collect(Collectors.toSet());
+        compatibleTypes.add("scaled_float"); // have to add manually since scaled_float is in a module
+
+        // If analysis supports categorical fields add the supported ones too
+        if (config.getAnalysis().supportsCategoricalFields()) {
+            compatibleTypes.addAll(CATEGORICAL_TYPES);
+        }
+
+        return compatibleTypes;
+    }
+
+    private void includeAndExcludeFields(Set<String> fields) {
         FetchSourceContext analyzedFields = config.getAnalyzedFields();
         if (analyzedFields == null) {
             return;
@@ -165,5 +175,17 @@ public class ExtractedFieldsDetector {
             adjusted.add(field.supportsFromSource() ? field.newFromSource() : field);
         }
         return new ExtractedFields(adjusted);
+    }
+
+    public Set<String> getCategoricalFields(ExtractedFields extractedFields) {
+        Set<String> categoricalFields = new HashSet<>();
+        for (ExtractedField extractedField : extractedFields.getAllFields()) {
+            String fieldName = extractedField.getName();
+            Map<String, FieldCapabilities> fieldCaps = fieldCapabilitiesResponse.getField(extractedField.getName());
+            if (CATEGORICAL_TYPES.containsAll(fieldCaps.keySet())) {
+                categoricalFields.add(fieldName);
+            }
+        }
+        return categoricalFields;
     }
 }

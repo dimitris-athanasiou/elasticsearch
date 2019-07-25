@@ -152,6 +152,11 @@ public class OutlierDetection implements DataFrameAnalysis {
         return params;
     }
 
+    @Override
+    public boolean supportsCategoricalFields() {
+        return false;
+    }
+
     public enum Method {
         LOF, LDOF, DISTANCE_KTH_NN, DISTANCE_KNN;
 

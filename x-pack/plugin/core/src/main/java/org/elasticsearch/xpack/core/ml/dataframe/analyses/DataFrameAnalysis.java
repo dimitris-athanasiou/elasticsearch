@@ -13,4 +13,6 @@ import java.util.Map;
 public interface DataFrameAnalysis extends ToXContentObject, NamedWriteable {
 
     Map<String, Object> getParams();
+
+    boolean supportsCategoricalFields();
 }

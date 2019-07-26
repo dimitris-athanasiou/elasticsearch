@@ -45,7 +45,7 @@ public class ExtractedFieldsDetector {
     private static final List<String> IGNORE_FIELDS = Arrays.asList("_id", "_field_names", "_index", "_parent", "_routing", "_seq_no",
         "_source", "_type", "_uid", "_version", "_feature", "_ignored");
 
-    private static final Set<String> CATEGORICAL_TYPES = new HashSet<>(Arrays.asList("text", "keyword", "ip"));
+    public static final Set<String> CATEGORICAL_TYPES = new HashSet<>(Arrays.asList("text", "keyword", "ip"));
 
     private final String[] index;
     private final DataFrameAnalyticsConfig config;
@@ -175,17 +175,5 @@ public class ExtractedFieldsDetector {
             adjusted.add(field.supportsFromSource() ? field.newFromSource() : field);
         }
         return new ExtractedFields(adjusted);
-    }
-
-    public Set<String> getCategoricalFields(ExtractedFields extractedFields) {
-        Set<String> categoricalFields = new HashSet<>();
-        for (ExtractedField extractedField : extractedFields.getAllFields()) {
-            String fieldName = extractedField.getName();
-            Map<String, FieldCapabilities> fieldCaps = fieldCapabilitiesResponse.getField(extractedField.getName());
-            if (CATEGORICAL_TYPES.containsAll(fieldCaps.keySet())) {
-                categoricalFields.add(fieldName);
-            }
-        }
-        return categoricalFields;
     }
 }

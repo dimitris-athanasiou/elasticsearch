@@ -31,6 +31,7 @@ import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsConfig;
 import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsDest;
 import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsSource;
 import org.elasticsearch.xpack.core.ml.dataframe.analyses.OutlierDetection;
+import org.elasticsearch.xpack.core.ml.dataframe.analyses.Regression;
 import org.elasticsearch.xpack.core.ml.job.config.AnalysisConfig;
 import org.elasticsearch.xpack.core.ml.job.config.AnalysisLimits;
 import org.elasticsearch.xpack.core.ml.job.config.DataDescription;
@@ -440,6 +441,13 @@ public class ElasticsearchMappings {
                         .endObject()
                         .startObject(OutlierDetection.FEATURE_INFLUENCE_THRESHOLD.getPreferredName())
                             .field(TYPE, DOUBLE)
+                        .endObject()
+                    .endObject()
+                .endObject()
+                .startObject(Regression.NAME.getPreferredName())
+                    .startObject(PROPERTIES)
+                        .startObject(Regression.DEPENDENT_VARIABLE.getPreferredName())
+                            .field(TYPE, KEYWORD)
                         .endObject()
                     .endObject()
                 .endObject()

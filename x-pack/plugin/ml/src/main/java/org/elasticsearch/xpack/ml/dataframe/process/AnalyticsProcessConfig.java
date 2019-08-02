@@ -11,8 +11,8 @@ import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.xpack.core.ml.dataframe.analyses.DataFrameAnalysis;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public class AnalyticsProcessConfig implements ToXContentObject {
 
@@ -29,11 +29,11 @@ public class AnalyticsProcessConfig implements ToXContentObject {
     private final ByteSizeValue memoryLimit;
     private final int threads;
     private final String resultsField;
-    private final List<String> categoricalFields;
+    private final Set<String> categoricalFields;
     private final DataFrameAnalysis analysis;
 
     public AnalyticsProcessConfig(long rows, int cols, ByteSizeValue memoryLimit, int threads, String resultsField,
-                                  List<String> categoricalFields, DataFrameAnalysis analysis) {
+                                  Set<String> categoricalFields, DataFrameAnalysis analysis) {
         this.rows = rows;
         this.cols = cols;
         this.memoryLimit = Objects.requireNonNull(memoryLimit);

@@ -14,6 +14,7 @@ import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsConfig;
 import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsDest;
 import org.elasticsearch.xpack.core.ml.dataframe.DataFrameAnalyticsSource;
 import org.elasticsearch.xpack.core.ml.dataframe.analyses.OutlierDetection;
+import org.elasticsearch.xpack.core.ml.dataframe.analyses.Regression;
 import org.elasticsearch.xpack.core.ml.job.config.AnalysisConfig;
 import org.elasticsearch.xpack.core.ml.job.config.AnalysisLimits;
 import org.elasticsearch.xpack.core.ml.job.config.DataDescription;
@@ -299,6 +300,8 @@ public final class ReservedFieldNames {
             OutlierDetection.N_NEIGHBORS.getPreferredName(),
             OutlierDetection.METHOD.getPreferredName(),
             OutlierDetection.FEATURE_INFLUENCE_THRESHOLD.getPreferredName(),
+            Regression.NAME.getPreferredName(),
+            Regression.DEPENDENT_VARIABLE.getPreferredName(),
 
             ElasticsearchMappings.CONFIG_TYPE,
 

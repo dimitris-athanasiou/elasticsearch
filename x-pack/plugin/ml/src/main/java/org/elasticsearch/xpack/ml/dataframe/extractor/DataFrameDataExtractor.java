@@ -181,7 +181,7 @@ public class DataFrameDataExtractor {
         for (int i = 0; i < extractedValues.length; ++i) {
             ExtractedField field = context.extractedFields.getAllFields().get(i);
             Object[] values = field.value(hit);
-            if (values.length == 1 && values[0] instanceof Number) {
+            if (values.length == 1 && (values[0] instanceof Number || values[0] instanceof String)) {
                 extractedValues[i] = Objects.toString(values[0]);
             } else {
                 extractedValues = null;
@@ -235,7 +235,7 @@ public class DataFrameDataExtractor {
         return new DataSummary(searchResponse.getHits().getTotalHits().value, context.extractedFields.getAllFields().size());
     }
 
-    private Set<String> getCategoricalFields() {
+    public Set<String> getCategoricalFields() {
         Set<String> categoricalFields = new HashSet<>();
         for (ExtractedField extractedField : context.extractedFields.getAllFields()) {
             String fieldName = extractedField.getName();

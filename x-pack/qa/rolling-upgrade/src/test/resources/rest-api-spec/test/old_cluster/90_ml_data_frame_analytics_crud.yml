@@ -1,0 +1,57 @@
+---
+"Put outlier_detection job on the old cluster":
+
+  - do:
+      indices.create:
+        index: bwc_ml_outlier_detection_job_source
+
+  - do:
+      index:
+        index: bwc_ml_outlier_detection_job_source
+        body: >
+          {
+            "numeric_1": 42.0
+          }
+
+  - do:
+      ml.put_data_frame_analytics:
+        id: "old-cluster-outlier_detection_job"
+        body: >
+          {
+            "source": {
+              "index": "bwc_ml_outlier_detection_job_source",
+              "query": {"term" : { "user" : "Kimchy" }}
+            },
+            "dest": {
+              "index": "bwc_ml_outlier_detection_results"
+            },
+            "analysis": {"outlier_detection":{}}
+          }
+  - match: { id: "old-cluster-outlier_detection_job" }
+
+---
+"Put regression job on the old cluster":
+
+  - do:
+      indices.create:
+        index: bwc_ml_regression_job_source
+
+  - do:
+      ml.put_data_frame_analytics:
+        id: "old-cluster-regression_job"
+        body: >
+          {
+            "source": {
+              "index": "bwc_ml_regression_job_source",
+              "query": {"term" : { "user" : "Kimchy" }}
+            },
+            "dest": {
+              "index": "ml_regression_results"
+            },
+            "analysis": {
+              "regression":{
+                "dependent_variable": "foo"
+              }
+            }
+          }
+  - match: { id: "old-cluster-regression_job" }

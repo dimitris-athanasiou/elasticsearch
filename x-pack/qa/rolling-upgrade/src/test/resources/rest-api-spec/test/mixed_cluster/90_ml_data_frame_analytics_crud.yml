@@ -1,0 +1,37 @@
+---
+"Get old outlier_detection job":
+
+  - do:
+      ml.get_data_frame_analytics:
+        id: "old-cluster-outlier_detection_job"
+  - match: { count: 1 }
+  - match: { data_frame_analytics.0.id: "old-cluster-outlier_detection_job" }
+
+---
+"Get old outlier_detection job stats":
+
+  - do:
+      ml.get_data_frame_analytics_stats:
+        id: "old-cluster-outlier_detection_job"
+  - match: { count: 1 }
+  - match: { data_frame_analytics.0.id: "old-cluster-outlier_detection_job" }
+  - match: { data_frame_analytics.0.state: "stopped" }
+
+---
+"Get old regression job":
+
+  - do:
+      ml.get_data_frame_analytics:
+        id: "old-cluster-regression_job"
+  - match: { count: 1 }
+  - match: { data_frame_analytics.0.id: "old-cluster-regression_job" }
+
+---
+"Get old regression job stats":
+
+  - do:
+      ml.get_data_frame_analytics_stats:
+        id: "old-cluster-regression_job"
+  - match: { count: 1 }
+  - match: { data_frame_analytics.0.id: "old-cluster-regression_job" }
+  - match: { data_frame_analytics.0.state: "stopped" }

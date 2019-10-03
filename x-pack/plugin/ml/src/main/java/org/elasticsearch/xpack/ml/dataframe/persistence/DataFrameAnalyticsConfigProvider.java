@@ -5,6 +5,7 @@
  */
 package org.elasticsearch.xpack.ml.dataframe.persistence;
 
+import org.apache.commons.logging.Log;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ElasticsearchParseException;
@@ -77,6 +78,7 @@ public class DataFrameAnalyticsConfigProvider {
     }
 
     public void put(DataFrameAnalyticsConfig config, Map<String, String> headers, ActionListener<IndexResponse> listener) {
+        logger.info("[{}] Putting ...", config.getId());
         String id = config.getId();
 
         if (headers.isEmpty() == false) {
@@ -100,6 +102,7 @@ public class DataFrameAnalyticsConfigProvider {
                 listener::onResponse,
                 e -> {
                     if (e instanceof VersionConflictEngineException) {
+                        logger.error("Error putting analytics", e);
                         listener.onFailure(ExceptionsHelper.dataFrameAnalyticsAlreadyExists(id));
                     } else {
                         listener.onFailure(e);

@@ -118,6 +118,7 @@ public class TransportPutDataFrameAnalyticsAction
                 .build();
 
         if (licenseState.isAuthAllowed()) {
+            logger.info("Auth is allowed");
             final String username = securityContext.getUser().principal();
             RoleDescriptor.IndicesPrivileges sourceIndexPrivileges = RoleDescriptor.IndicesPrivileges.builder()
                 .indices(memoryCappedConfig.getSource().getIndex())
@@ -140,6 +141,7 @@ public class TransportPutDataFrameAnalyticsAction
 
             client.execute(HasPrivilegesAction.INSTANCE, privRequest, privResponseListener);
         } else {
+            logger.info("Auth not allowed");
             updateDocMappingAndPutConfig(
                 memoryCappedConfig,
                 threadPool.getThreadContext().getHeaders(),

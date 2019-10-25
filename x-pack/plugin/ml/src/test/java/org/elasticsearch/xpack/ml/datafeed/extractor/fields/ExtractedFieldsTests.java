@@ -8,11 +8,6 @@ package org.elasticsearch.xpack.ml.datafeed.extractor.fields;
 import org.elasticsearch.action.fieldcaps.FieldCapabilities;
 import org.elasticsearch.action.fieldcaps.FieldCapabilitiesResponse;
 import org.elasticsearch.test.ESTestCase;
-import org.elasticsearch.xpack.core.ml.datafeed.DatafeedConfig;
-import org.elasticsearch.xpack.core.ml.job.config.AnalysisConfig;
-import org.elasticsearch.xpack.core.ml.job.config.DataDescription;
-import org.elasticsearch.xpack.core.ml.job.config.Detector;
-import org.elasticsearch.xpack.core.ml.job.config.Job;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -74,16 +69,6 @@ public class ExtractedFieldsTests extends ESTestCase {
     }
 
     public void testBuildGivenMultiFields() {
-        Job.Builder jobBuilder = new Job.Builder("foo");
-        jobBuilder.setDataDescription(new DataDescription.Builder());
-        Detector.Builder detector = new Detector.Builder("count", null);
-        detector.setByFieldName("airline.text");
-        detector.setOverFieldName("airport.keyword");
-        jobBuilder.setAnalysisConfig(new AnalysisConfig.Builder(Collections.singletonList(detector.build())));
-
-        DatafeedConfig.Builder datafeedBuilder = new DatafeedConfig.Builder("feed", jobBuilder.getId());
-        datafeedBuilder.setIndices(Collections.singletonList("foo"));
-
         Map<String, FieldCapabilities> text = new HashMap<>();
         text.put("text", createFieldCaps(false));
         Map<String, FieldCapabilities> keyword = new HashMap<>();

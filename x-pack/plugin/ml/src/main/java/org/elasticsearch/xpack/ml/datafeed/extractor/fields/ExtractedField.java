@@ -93,6 +93,10 @@ public abstract class ExtractedField {
         return newField(name, name, types, extractionMethod);
     }
 
+    public static ExtractedField nestedMultiField(ExtractedField extractedField) {
+        return new NestedMultiField(extractedField);
+    }
+
     public static ExtractedField newField(String alias, String name, Set<String> types, ExtractionMethod extractionMethod) {
         switch (extractionMethod) {
             case DOC_VALUE:
@@ -304,6 +308,30 @@ public abstract class ExtractedField {
                 return (Map<String, Object>) source.get(key);
             }
             return null;
+        }
+    }
+
+    /**
+     * This is a wrapper for fields that are nested in a multi-field.
+     * Those fields do not exist in source so they cannot be fetched from there.
+     */
+    private static class NestedMultiField extends ExtractedField {
+
+        private final ExtractedField wrappedField;
+
+        NestedMultiField(ExtractedField field) {
+            super(field.alias, field.name, field.types, field.extractionMethod);
+            this.wrappedField = field;
+        }
+
+        @Override
+        public Object[] value(SearchHit hit) {
+            return wrappedField.value(hit);
+        }
+
+        @Override
+        public boolean supportsFromSource() {
+            return false;
         }
     }
 }

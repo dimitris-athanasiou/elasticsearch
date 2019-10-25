@@ -70,7 +70,9 @@ public class ExtractedFields {
         protected ExtractedField detect(String field) {
             String internalField = field;
             ExtractedField.ExtractionMethod method = ExtractedField.ExtractionMethod.SOURCE;
+            boolean isDocValueAndMultiField = false;
             Set<String> types = getTypes(field);
+
             if (scriptFields.contains(field)) {
                 method = ExtractedField.ExtractionMethod.SCRIPT_FIELD;
             } else if (isAggregatable(field)) {
@@ -78,14 +80,16 @@ public class ExtractedFields {
                 if (isFieldOfType(field, "date")) {
                     return ExtractedField.newTimeField(field, types, method);
                 }
+                String parentField = MlStrings.getParentField(field);
+                isDocValueAndMultiField = isMultiField(field, parentField);
             } else if (isFieldOfType(field, TEXT)) {
                 String parentField = MlStrings.getParentField(field);
                 // Field is text so check if it is a multi-field
-                if (Objects.equals(parentField, field) == false && fieldsCapabilities.getField(parentField) != null) {
+                if (isMultiField(field, parentField)) {
                     // Field is a multi-field which means it won't be available in source. Let's take the parent instead.
                     internalField = parentField;
                     method = isAggregatable(parentField) ? ExtractedField.ExtractionMethod.DOC_VALUE
-                            : ExtractedField.ExtractionMethod.SOURCE;
+                        : ExtractedField.ExtractionMethod.SOURCE;
                 }
             }
 
@@ -99,7 +103,22 @@ public class ExtractedFields {
                 return ExtractedField.newGeoShapeField(field, internalField);
             }
 
-            return ExtractedField.newField(field, internalField, types, method);
+            ExtractedField extractedField = ExtractedField.newField(field, internalField, types, method);
+            return isDocValueAndMultiField ? ExtractedField.nestedMultiField(extractedField) : extractedField;
+        }
+
+        private boolean isMultiField(String field, String parent) {
+            if (Objects.equals(field, parent)) {
+                return false;
+            }
+            Map<String, FieldCapabilities> parentFieldCaps = fieldsCapabilities.getField(parent);
+            if (parentFieldCaps == null || (parentFieldCaps.size() == 1 && parentFieldCaps.containsKey("object"))) {
+                // We check if the parent is an object which is indicated by field caps containing an "object" entry.
+                // If an object, it's not a multi field
+                return false;
+            }
+
+            return true;
         }
 
         private Set<String> getTypes(String field) {

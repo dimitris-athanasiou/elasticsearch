@@ -105,21 +105,15 @@ public class TransportGetDataFrameAnalyticsStatsAction
                                  ActionListener<QueryPage<Stats>> listener) {
         logger.debug("Get stats for running task [{}]", task.getParams().getId());
 
-        ActionListener<Void> reindexingProgressListener = ActionListener.wrap(
-            aVoid -> {
-                Stats stats = buildStats(
-                    task.getParams().getId(),
-                    task.getStatsHolder().getProgressTracker().report(),
-                    task.getStatsHolder().getDataCountsTracker().report(task.getParams().getId()),
-                    task.getStatsHolder().getMemoryUsage(),
-                    task.getStatsHolder().getAnalysisStats()
-                );
-                listener.onResponse(new QueryPage<>(Collections.singletonList(stats), 1,
-                    GetDataFrameAnalyticsAction.Response.RESULTS_FIELD));
-            }, listener::onFailure
+        Stats stats = buildStats(
+            task.getParams().getId(),
+            task.getStatsHolder().getProgressTracker().report(),
+            task.getStatsHolder().getDataCountsTracker().report(task.getParams().getId()),
+            task.getStatsHolder().getMemoryUsage(),
+            task.getStatsHolder().getAnalysisStats()
         );
-
-        task.updateReindexTaskProgress(reindexingProgressListener);
+        listener.onResponse(new QueryPage<>(Collections.singletonList(stats), 1,
+            GetDataFrameAnalyticsAction.Response.RESULTS_FIELD));
     }
 
     @Override

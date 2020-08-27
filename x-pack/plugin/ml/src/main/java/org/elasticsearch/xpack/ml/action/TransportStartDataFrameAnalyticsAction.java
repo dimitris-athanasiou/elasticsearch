@@ -594,7 +594,6 @@ public class TransportStartDataFrameAnalyticsAction
     public static class TaskExecutor extends PersistentTasksExecutor<StartDataFrameAnalyticsAction.TaskParams> {
 
         private final Client client;
-        private final ClusterService clusterService;
         private final DataFrameAnalyticsManager manager;
         private final DataFrameAnalyticsAuditor auditor;
         private final MlMemoryTracker memoryTracker;
@@ -609,7 +608,6 @@ public class TransportStartDataFrameAnalyticsAction
                             DataFrameAnalyticsAuditor auditor, MlMemoryTracker memoryTracker, IndexNameExpressionResolver resolver) {
             super(MlTasks.DATA_FRAME_ANALYTICS_TASK_NAME, MachineLearning.UTILITY_THREAD_POOL_NAME);
             this.client = Objects.requireNonNull(client);
-            this.clusterService = Objects.requireNonNull(clusterService);
             this.manager = Objects.requireNonNull(manager);
             this.auditor = Objects.requireNonNull(auditor);
             this.memoryTracker = Objects.requireNonNull(memoryTracker);
@@ -630,7 +628,7 @@ public class TransportStartDataFrameAnalyticsAction
             PersistentTasksCustomMetadata.PersistentTask<StartDataFrameAnalyticsAction.TaskParams> persistentTask,
             Map<String, String> headers) {
             return new DataFrameAnalyticsTask(
-                id, type, action, parentTaskId, headers, client, clusterService, manager, auditor, persistentTask.getParams());
+                id, type, action, parentTaskId, headers, client, manager, auditor, persistentTask.getParams());
         }
 
         @Override

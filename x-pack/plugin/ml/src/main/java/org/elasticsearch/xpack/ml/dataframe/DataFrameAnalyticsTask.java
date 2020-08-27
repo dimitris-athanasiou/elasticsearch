@@ -9,11 +9,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.apache.lucene.util.SetOnce;
-import org.elasticsearch.ResourceNotFoundException;
 import org.elasticsearch.action.ActionListener;
-import org.elasticsearch.action.admin.cluster.node.tasks.cancel.CancelTasksRequest;
-import org.elasticsearch.action.admin.cluster.node.tasks.cancel.CancelTasksResponse;
-import org.elasticsearch.action.admin.cluster.node.tasks.get.GetTaskRequest;
 import org.elasticsearch.action.index.IndexAction;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.index.IndexResponse;
@@ -23,20 +19,15 @@ import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.support.WriteRequest;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.client.ParentTaskAssigningClient;
-import org.elasticsearch.cluster.service.ClusterService;
-import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.unit.TimeValue;
-import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.json.JsonXContent;
 import org.elasticsearch.index.query.IdsQueryBuilder;
-import org.elasticsearch.index.reindex.BulkByScrollTask;
 import org.elasticsearch.persistent.AllocatedPersistentTask;
 import org.elasticsearch.persistent.PersistentTasksService;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.tasks.TaskManager;
-import org.elasticsearch.tasks.TaskResult;
 import org.elasticsearch.xpack.core.ml.MlTasks;
 import org.elasticsearch.xpack.core.ml.action.GetDataFrameAnalyticsStatsAction;
 import org.elasticsearch.xpack.core.ml.action.StartDataFrameAnalyticsAction;
@@ -64,23 +55,19 @@ public class DataFrameAnalyticsTask extends AllocatedPersistentTask implements S
     private static final Logger LOGGER = LogManager.getLogger(DataFrameAnalyticsTask.class);
 
     private final Client client;
-    private final ClusterService clusterService;
     private final DataFrameAnalyticsManager analyticsManager;
     private final DataFrameAnalyticsAuditor auditor;
     private final StartDataFrameAnalyticsAction.TaskParams taskParams;
-    @Nullable
-    private volatile Long reindexingTaskId;
-    private volatile boolean isReindexingFinished;
     private volatile boolean isStopping;
     private volatile boolean isMarkAsCompletedCalled;
     private final StatsHolder statsHolder;
+    private volatile Runnable stopReindexerFunction;
 
     public DataFrameAnalyticsTask(long id, String type, String action, TaskId parentTask, Map<String, String> headers,
-                                  Client client, ClusterService clusterService, DataFrameAnalyticsManager analyticsManager,
-                                  DataFrameAnalyticsAuditor auditor, StartDataFrameAnalyticsAction.TaskParams taskParams) {
+                                  Client client, DataFrameAnalyticsManager analyticsManager, DataFrameAnalyticsAuditor auditor,
+                                  StartDataFrameAnalyticsAction.TaskParams taskParams) {
         super(id, type, action, MlTasks.DATA_FRAME_ANALYTICS_TASK_ID_PREFIX + taskParams.getId(), parentTask, headers);
         this.client = new ParentTaskAssigningClient(Objects.requireNonNull(client), parentTask);
-        this.clusterService = Objects.requireNonNull(clusterService);
         this.analyticsManager = Objects.requireNonNull(analyticsManager);
         this.auditor = Objects.requireNonNull(auditor);
         this.taskParams = Objects.requireNonNull(taskParams);
@@ -91,13 +78,8 @@ public class DataFrameAnalyticsTask extends AllocatedPersistentTask implements S
         return taskParams;
     }
 
-    public void setReindexingTaskId(Long reindexingTaskId) {
-        LOGGER.debug("[{}] Setting reindexing task id to [{}] from [{}]", taskParams.getId(), reindexingTaskId, this.reindexingTaskId);
-        this.reindexingTaskId = reindexingTaskId;
-    }
-
     public void setReindexingFinished() {
-        isReindexingFinished = true;
+        statsHolder.getProgressTracker().updateReindexingProgress(100);
     }
 
     public boolean isStopping() {
@@ -106,6 +88,10 @@ public class DataFrameAnalyticsTask extends AllocatedPersistentTask implements S
 
     public StatsHolder getStatsHolder() {
         return statsHolder;
+    }
+
+    public void setStopReindexerFunction(Runnable stopReindexerFunction) {
+        this.stopReindexerFunction = stopReindexerFunction;
     }
 
     @Override
@@ -151,62 +137,17 @@ public class DataFrameAnalyticsTask extends AllocatedPersistentTask implements S
     }
 
     public void stop(String reason, TimeValue timeout) {
+        LOGGER.debug(() -> new ParameterizedMessage("[{}] Stopping with reason [{}]", taskParams.getId(), reason));
         isStopping = true;
-
-        ActionListener<Void> reindexProgressListener = ActionListener.wrap(
-            aVoid -> doStop(reason, timeout),
-            e -> {
-                LOGGER.error(new ParameterizedMessage("[{}] Error updating reindexing progress", taskParams.getId()), e);
-                // We should log the error but it shouldn't stop us from stopping the task
-                doStop(reason, timeout);
-            }
-        );
-
-        // We need to update reindexing progress before we cancel the task
-        updateReindexTaskProgress(reindexProgressListener);
+        doStop();
     }
 
-    private void doStop(String reason, TimeValue timeout) {
-        if (reindexingTaskId != null) {
-            cancelReindexingTask(reason, timeout);
+    private void doStop() {
+        if (stopReindexerFunction != null) {
+            stopReindexerFunction.run();
+            stopReindexerFunction = null;
         }
         analyticsManager.stop(this);
-    }
-
-    private void cancelReindexingTask(String reason, TimeValue timeout) {
-        TaskId reindexTaskId = new TaskId(clusterService.localNode().getId(), reindexingTaskId);
-        LOGGER.debug("[{}] Cancelling reindex task [{}]", taskParams.getId(), reindexTaskId);
-
-        CancelTasksRequest cancelReindex = new CancelTasksRequest();
-        cancelReindex.setTaskId(reindexTaskId);
-        cancelReindex.setReason(reason);
-        cancelReindex.setTimeout(timeout);
-
-        // We need to cancel the reindexing task within context with ML origin as we started the task
-        // from the same context
-        CancelTasksResponse cancelReindexResponse = cancelTaskWithinMlOriginContext(cancelReindex);
-
-        Throwable firstError = null;
-        if (cancelReindexResponse.getNodeFailures().isEmpty() == false) {
-            firstError = cancelReindexResponse.getNodeFailures().get(0).getRootCause();
-        }
-        if (cancelReindexResponse.getTaskFailures().isEmpty() == false) {
-            firstError = cancelReindexResponse.getTaskFailures().get(0).getCause();
-        }
-        // There is a chance that the task is finished by the time we cancel it in which case we'll get
-        // a ResourceNotFoundException which we can ignore.
-        if (firstError != null && ExceptionsHelper.unwrapCause(firstError) instanceof ResourceNotFoundException == false) {
-            throw ExceptionsHelper.serverError("[" + taskParams.getId() + "] Error cancelling reindex task", firstError);
-        } else {
-            LOGGER.debug("[{}] Reindex task was successfully cancelled", taskParams.getId());
-        }
-    }
-
-    private CancelTasksResponse cancelTaskWithinMlOriginContext(CancelTasksRequest cancelTasksRequest) {
-        final ThreadContext threadContext = client.threadPool().getThreadContext();
-        try (ThreadContext.StoredContext ignore = threadContext.stashWithOrigin(ML_ORIGIN)) {
-            return client.admin().cluster().cancelTasks(cancelTasksRequest).actionGet();
-        }
     }
 
     public void setFailed(Exception error) {
@@ -233,55 +174,6 @@ public class DataFrameAnalyticsTask extends AllocatedPersistentTask implements S
                     getParams().getId(), DataFrameAnalyticsState.FAILED, reason), e)
             )
         );
-    }
-
-    public void updateReindexTaskProgress(ActionListener<Void> listener) {
-        getReindexTaskProgress(ActionListener.wrap(
-            // We set reindexing progress at least to 1 for a running process to be able to
-            // distinguish a job that is running for the first time against a job that is restarting.
-            reindexTaskProgress -> {
-                statsHolder.getProgressTracker().updateReindexingProgress(Math.max(1, reindexTaskProgress));
-                listener.onResponse(null);
-            },
-            listener::onFailure
-        ));
-    }
-
-    private void getReindexTaskProgress(ActionListener<Integer> listener) {
-        TaskId reindexTaskId = getReindexTaskId();
-        if (reindexTaskId == null) {
-            listener.onResponse(isReindexingFinished ? 100 : 0);
-            return;
-        }
-
-        GetTaskRequest getTaskRequest = new GetTaskRequest();
-        getTaskRequest.setTaskId(reindexTaskId);
-        client.admin().cluster().getTask(getTaskRequest, ActionListener.wrap(
-            taskResponse -> {
-                TaskResult taskResult = taskResponse.getTask();
-                BulkByScrollTask.Status taskStatus = (BulkByScrollTask.Status) taskResult.getTask().getStatus();
-                int progress = (int) (taskStatus.getCreated() * 100.0 / taskStatus.getTotal());
-                listener.onResponse(progress);
-            },
-            error -> {
-                if (ExceptionsHelper.unwrapCause(error) instanceof ResourceNotFoundException) {
-                    // The task is not present which means either it has not started yet or it finished.
-                    listener.onResponse(isReindexingFinished ? 100 : 0);
-                } else {
-                    listener.onFailure(error);
-                }
-            }
-        ));
-    }
-
-    @Nullable
-    private TaskId getReindexTaskId() {
-        try {
-            return new TaskId(clusterService.localNode().getId(), reindexingTaskId);
-        } catch (NullPointerException e) {
-            // This may happen if there is no reindexing task id set which means we either never started the task yet or we're finished
-            return null;
-        }
     }
 
     // Visible for testing

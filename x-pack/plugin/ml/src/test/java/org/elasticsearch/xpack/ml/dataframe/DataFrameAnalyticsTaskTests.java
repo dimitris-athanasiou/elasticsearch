@@ -201,7 +201,7 @@ public class DataFrameAnalyticsTaskTests extends ESTestCase {
                 false);
         DataFrameAnalyticsTask task =
             new DataFrameAnalyticsTask(
-                123, "type", "action", null, Map.of(), client, clusterService, analyticsManager, auditor, taskParams);
+                123, "type", "action", null, Map.of(), client, analyticsManager, auditor, taskParams);
         task.init(persistentTasksService, taskManager, "task-id", 42);
         Exception exception = new Exception("some exception");
 

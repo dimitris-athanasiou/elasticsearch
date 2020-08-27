@@ -5,9 +5,10 @@
  */
 package org.elasticsearch.xpack.ml.dataframe.process;
 
-import org.elasticsearch.client.node.NodeClient;
+import org.elasticsearch.client.Client;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.test.ESTestCase;
+import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.ml.dataframe.DataFrameAnalyticsManager;
 import org.elasticsearch.xpack.ml.dataframe.persistence.DataFrameAnalyticsConfigProvider;
 import org.elasticsearch.xpack.ml.notifications.DataFrameAnalyticsAuditor;
@@ -20,7 +21,8 @@ public class DataFrameAnalyticsManagerTests extends ESTestCase {
     public void testNodeShuttingDown() {
         DataFrameAnalyticsManager manager =
             new DataFrameAnalyticsManager(
-                mock(NodeClient.class),
+                mock(Client.class),
+                mock(ThreadPool.class),
                 mock(DataFrameAnalyticsConfigProvider.class),
                 mock(AnalyticsProcessManager.class),
                 mock(DataFrameAnalyticsAuditor.class),

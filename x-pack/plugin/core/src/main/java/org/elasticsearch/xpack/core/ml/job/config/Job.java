@@ -17,6 +17,12 @@ import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.TimeValue;
+import org.elasticsearch.search.aggregations.AggregationBuilder;
+import org.elasticsearch.search.aggregations.AggregationBuilders;
+import org.elasticsearch.search.aggregations.bucket.composite.CompositeValuesSourceBuilder;
+import org.elasticsearch.search.aggregations.bucket.composite.DateHistogramValuesSourceBuilder;
+import org.elasticsearch.search.aggregations.bucket.composite.TermsValuesSourceBuilder;
+import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramInterval;
 import org.elasticsearch.xcontent.ObjectParser;
 import org.elasticsearch.xcontent.ObjectParser.ValueType;
 import org.elasticsearch.xcontent.ParseField;
@@ -46,6 +52,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.elasticsearch.xpack.core.ml.job.messages.Messages.JOB_CONFIG_DATAFEED_CONFIG_JOB_ID_MISMATCH;
 import static org.elasticsearch.xpack.core.ml.utils.ToXContentParams.EXCLUDE_GENERATED;
@@ -743,6 +751,50 @@ public class Job extends AbstractDiffable<Job> implements Writeable, ToXContentO
     @Override
     public final String toString() {
         return Strings.toString(this);
+    }
+
+    public AggregationBuilder generateDatafeedAgg() {
+        if (analysisConfig.getDetectors().size() > 1 || analysisConfig.getCategorizationFieldName() != null) {
+            return null;
+        }
+
+        Detector detector = analysisConfig.getDetectors().get(0);
+
+        if (detector.getFunction().isAggregatable() == false) {
+            return null;
+        }
+
+        Set<String> terms = Stream.concat(analysisConfig.getInfluencers().stream(), detector.getByOverPartitionTerms().stream())
+            .collect(Collectors.toUnmodifiableSet());
+
+        TimeValue histogramInterval = detector.getFunction().isCrossBucketSampling()
+            ? TimeValue.timeValueMillis(analysisConfig.getBucketSpan().millis() / 10)
+            : analysisConfig.getBucketSpan();
+
+        AggregationBuilder aggs;
+
+        if (terms.isEmpty()) {
+            aggs = AggregationBuilders.dateHistogram("buckets")
+                .field(dataDescription.getTimeField())
+                .fixedInterval(new DateHistogramInterval(histogramInterval.getStringRep()));
+        } else {
+            List<CompositeValuesSourceBuilder<?>> sources = new ArrayList<>();
+            sources.add(
+                new DateHistogramValuesSourceBuilder(dataDescription.getTimeField()).field(dataDescription.getTimeField())
+                    .fixedInterval(new DateHistogramInterval(histogramInterval.getStringRep()))
+            );
+            terms.forEach(term -> sources.add(new TermsValuesSourceBuilder(term).field(term)));
+
+            aggs = AggregationBuilders.composite("buckets", sources).size(10000);
+        }
+
+        aggs.subAggregation(AggregationBuilders.max(dataDescription.getTimeField()).field(dataDescription.getTimeField()));
+
+        if (detector.getFunction().isCount() == false) {
+            aggs.subAggregation(detector.getFunction().buildAgg(detector.getFieldName()));
+        }
+
+        return aggs;
     }
 
     private static void checkValueNotLessThan(long minVal, String name, Long value) {

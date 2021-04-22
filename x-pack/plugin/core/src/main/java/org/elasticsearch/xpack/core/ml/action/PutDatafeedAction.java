@@ -56,6 +56,10 @@ public class PutDatafeedAction extends ActionType<PutDatafeedAction.Response> {
             return datafeed;
         }
 
+        public void setDatafeed(DatafeedConfig datafeed) {
+            this.datafeed = datafeed;
+        }
+
         @Override
         public ActionRequestValidationException validate() {
             return null;

@@ -21,6 +21,8 @@ import org.elasticsearch.index.IndexNotFoundException;
 import org.elasticsearch.license.RemoteClusterLicenseChecker;
 import org.elasticsearch.license.XPackLicenseState;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
+import org.elasticsearch.search.aggregations.AggregationBuilder;
+import org.elasticsearch.search.aggregations.AggregatorFactories;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.XContentBuilder;
@@ -324,7 +326,33 @@ public final class DatafeedManager {
             ActionListener.wrap(validationOk, listener::onFailure)
         );
 
-        checkJobDoesNotHaveADatafeed(request.getDatafeed().getJobId(), ActionListener.wrap(jobOk, listener::onFailure));
+        ActionListener<Boolean> jobHasNoDatafeedListener = ActionListener.wrap(jobHasNoDatafeed -> {
+            if (request.getDatafeed().hasAggregations()) {
+                jobOk.accept(jobHasNoDatafeed);
+            } else {
+                tryAutoGeneratingAggs(request.getDatafeed(), ActionListener.wrap(datafeedWithAggs -> {
+                    request.setDatafeed(datafeedWithAggs);
+                    jobOk.accept(jobHasNoDatafeed);
+                }, listener::onFailure));
+            }
+        }, listener::onFailure);
+
+        checkJobDoesNotHaveADatafeed(request.getDatafeed().getJobId(), jobHasNoDatafeedListener);
+    }
+
+    private void tryAutoGeneratingAggs(DatafeedConfig originalDatafeed, ActionListener<DatafeedConfig> listener) {
+        jobConfigProvider.getJob(originalDatafeed.getJobId(), ActionListener.wrap(job -> {
+            AggregationBuilder autoAggs = job.build().generateDatafeedAgg();
+            if (autoAggs == null) {
+                listener.onResponse(originalDatafeed);
+            } else {
+                listener.onResponse(
+                    new DatafeedConfig.Builder(originalDatafeed).setParsedAggregations(
+                        AggregatorFactories.builder().addAggregator(autoAggs)
+                    ).build()
+                );
+            }
+        }, listener::onFailure));
     }
 
     private void checkJobDoesNotHaveADatafeed(String jobId, ActionListener<Boolean> listener) {

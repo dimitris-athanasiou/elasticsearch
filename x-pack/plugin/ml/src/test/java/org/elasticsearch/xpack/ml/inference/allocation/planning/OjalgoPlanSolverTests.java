@@ -22,7 +22,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-@TestLogging(value = "org.elasticsearch.xpack.ml.inference.allocation.planning:TRACE", reason = "test")
+@TestLogging(value = "org.elasticsearch.xpack.ml.inference.allocation.planning:INFO", reason = "test")
 public class OjalgoPlanSolverTests extends ESTestCase {
 
     public void testSolveGivenSingleNodeSingleModelThatDoesNotFitInMemory() {
@@ -173,7 +173,7 @@ public class OjalgoPlanSolverTests extends ESTestCase {
         List<Double> incrementalSolveQualities = new ArrayList<>();
         List<Integer> nodeSizes = new ArrayList<>();
         List<Integer> modelSizes = new ArrayList<>();
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 1000; i++) {
             int scale = randomIntBetween(0, 10);
             double load = randomDoubleBetween(0.1, 1.0, true);
             List<Node> nodes = randomNodes(scale);
@@ -182,12 +182,22 @@ public class OjalgoPlanSolverTests extends ESTestCase {
             modelSizes.add(models.size());
             System.out.println("Nodes = " + nodes.size() + "; Models = " + models.size());
 
-            double fullSolveQuality;
+            double fullSolveQuality = 0;
             {
                 OjalgoPlanSolver solver = new OjalgoPlanSolver(nodes, models);
                 StopWatch stopWatch = new StopWatch();
                 stopWatch.start();
                 AllocationPlan allocationPlan = solver.computePlan();
+                System.out.println(
+                    "(Full Solve Plan) "
+                        + prettyPrintOverallQuality(
+                            nodes,
+                            models,
+                            allocationPlan,
+                            solver.computeQuality(allocationPlan)
+                        )
+                );
+                System.out.println("(Full Solve Plan) " + allocationPlan.prettyPrint());
                 stopWatch.stop();
                 fullSolveTimes.add(stopWatch.totalTime().millis());
                 fullSolveQuality = solver.computeQuality(allocationPlan);
@@ -195,19 +205,34 @@ public class OjalgoPlanSolverTests extends ESTestCase {
             }
             double incrementalSolveQuality;
             {
-                OjalgoPlanSolver solver = new OjalgoPlanSolver(nodes, models);
+                OjalgoPlanSolver solver = new OjalgoPlanSolver(nodes, models, false);
                 StopWatch stopWatch = new StopWatch();
                 stopWatch.start();
                 AllocationPlan allocationPlan = AllocationPlan.builder(nodes, List.of()).build();
                 for (Model m : models) {
                     allocationPlan = addModelPreservingPlan(nodes, allocationPlan, m);
                 }
+                System.out.println(
+                    "(Incr Solve Plan) "
+                        + prettyPrintOverallQuality(
+                        nodes,
+                        models,
+                        allocationPlan,
+                        solver.computeQuality(allocationPlan)
+                    )
+                );
+                System.out.println("(Incr Solve Plan) " + allocationPlan.prettyPrint());
                 stopWatch.stop();
                 incrementalSolveTimes.add(stopWatch.totalTime().millis());
                 incrementalSolveQuality = solver.computeQuality(allocationPlan);
                 incrementalSolveQualities.add(incrementalSolveQuality);
             }
-            ratios.add(incrementalSolveQuality / fullSolveQuality);
+            if (fullSolveQuality != 0) {
+                ratios.add(incrementalSolveQuality / fullSolveQuality);
+            }
+            if (incrementalSolveQuality < 0.9 * fullSolveQuality) {
+                System.out.println("Incremental Worse!!");
+            }
         }
 
         System.out.println("Avg nodes = " + nodeSizes.stream().mapToLong(Integer::intValue).average().getAsDouble());
@@ -250,9 +275,9 @@ public class OjalgoPlanSolverTests extends ESTestCase {
             ByteSizeValue.ofGb(4).getBytes() };
 
         List<Node> nodes = new ArrayList<>();
+        int cores = randomIntBetween(2, 32);
+        long memBytesPerCore = randomFrom(memBytesPerCoreValues);
         for (int i = 0; i < 1 + 3 * scale; i++) {
-            int cores = randomIntBetween(2, 32);
-            long memBytesPerCore = randomFrom(memBytesPerCoreValues);
             nodes.add(new Node("n_" + i, cores * memBytesPerCore, cores));
         }
         return nodes;
@@ -266,8 +291,8 @@ public class OjalgoPlanSolverTests extends ESTestCase {
                     "m_" + i,
                     randomLongBetween(ByteSizeValue.ofMb(100).getBytes(), ByteSizeValue.ofGb(10).getBytes()),
                     randomIntBetween(1, 32),
-                    randomDouble() < 0.8 ? Set.of() : Set.of(randomFrom(nodes.stream().map(Node::id).toList())),
-                    randomDoubleBetween(0.5, 1.5, true)
+                    Set.of(), // randomDouble() < 0.8 ? Set.of() : Set.of(randomFrom(nodes.stream().map(Node::id).toList())),
+                    1.0 //randomDoubleBetween(0.5, 1.5, true)
                 )
             );
         }
@@ -293,7 +318,7 @@ public class OjalgoPlanSolverTests extends ESTestCase {
         List<Node> nodesAccountingCurrentAllocations = nodes.stream()
             .map(n -> new Node(n.id(), n.availableMemoryBytes() - usedMemoryPerNode.get(n), n.cores() - usedCoresPerNode.get(n)))
             .collect(Collectors.toList());
-        AllocationPlan planForNewModel = new OjalgoPlanSolver(nodesAccountingCurrentAllocations, List.of(newModel)).computePlan();
+        AllocationPlan planForNewModel = new OjalgoPlanSolver(nodesAccountingCurrentAllocations, List.of(newModel), false).computePlan();
         AllocationPlan.Builder resultPlan = AllocationPlan.builder(
             nodes,
             Stream.concat(previousPlan.models().stream(), Stream.of(newModel)).toList()
@@ -320,8 +345,10 @@ public class OjalgoPlanSolverTests extends ESTestCase {
         long totalUsedMem = 0;
         for (Model m : models) {
             totalThreadsRequired += m.threads();
-            totalThreadsUsed += allocationPlan.assignments(m).values().stream().mapToInt(Integer::intValue).sum();
-            totalUsedMem += m.memoryBytes() * allocationPlan.assignments(m).values().size();
+            if (allocationPlan.assignments(m) != null) {
+                totalThreadsUsed += allocationPlan.assignments(m).values().stream().mapToInt(Integer::intValue).sum();
+                totalUsedMem += m.memoryBytes() * allocationPlan.assignments(m).values().size();
+            }
         }
         StringBuilder msg = new StringBuilder("Quality = ");
         msg.append(quality);

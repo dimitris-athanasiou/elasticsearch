@@ -9,6 +9,7 @@ package org.elasticsearch.xpack.ml.inference.allocation.planning;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.elasticsearch.common.Randomness;
 import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.xpack.ml.inference.allocation.planning.AllocationPlan.Model;
@@ -52,9 +53,15 @@ public class OjalgoPlanSolver implements PlanSolver {
     private final int maxNodeCores;
     private final long maxModelMemoryBytes;
 
+    private final boolean useBinPackingOnly;
+
     public OjalgoPlanSolver(List<Node> nodes, List<Model> models) {
-        random = new Random(738921734L);
-//         random = Randomness.get();
+        this(nodes, models, false);
+    }
+
+    public OjalgoPlanSolver(List<Node> nodes, List<Model> models, boolean useBinPackingOnly) {
+//        random = new Random(738921734L);
+         random = Randomness.get();
 
         this.nodes = nodes.stream().sorted(Comparator.comparing(Node::id)).toList();
         long maxNodeMemory = nodes.stream().map(Node::availableMemoryBytes).max(Long::compareTo).orElse(0L);
@@ -68,6 +75,8 @@ public class OjalgoPlanSolver implements PlanSolver {
         normalizedMemoryPerModel = this.models.stream()
             .collect(Collectors.toMap(Function.identity(), m -> m.memoryBytes() / (double) maxModelMemoryBytes));
         threadsPerModel = this.models.stream().collect(Collectors.toMap(Function.identity(), Model::threads));
+
+        this.useBinPackingOnly = useBinPackingOnly;
     }
 
     @Override
@@ -77,6 +86,10 @@ public class OjalgoPlanSolver implements PlanSolver {
         }
 
         Tuple<Map<Tuple<Model, Node>, Double>, AllocationPlan> weightsAndBinPackingPlan = calculateWeightsAndBinPackingPlan();
+
+        if (useBinPackingOnly) {
+            return weightsAndBinPackingPlan.v2();
+        }
 
         Map<Tuple<Model, Node>, Double> assignmentValues = new HashMap<>();
         Map<Tuple<Model, Node>, Integer> threadValues = new HashMap<>();
@@ -95,9 +108,11 @@ public class OjalgoPlanSolver implements PlanSolver {
 
         double quality = computeQuality(allocationPlan);
         double binPackingPlanQuality = computeQuality(weightsAndBinPackingPlan.v2());
-        if (binPackingPlanQuality > quality) {
+        if (binPackingPlanQuality >= quality) {
             allocationPlan = weightsAndBinPackingPlan.v2();
             quality = binPackingPlanQuality;
+        } else {
+            System.out.println("Bin Packing Worse");
         }
 
         final AllocationPlan bestPlan = allocationPlan;
@@ -307,8 +322,10 @@ public class OjalgoPlanSolver implements PlanSolver {
         long totalUsedMem = 0;
         for (Model m : models) {
             totalThreadsRequired += m.threads();
-            totalThreadsUsed += allocationPlan.assignments(m).values().stream().mapToInt(Integer::intValue).sum();
-            totalUsedMem += m.memoryBytes() * allocationPlan.assignments(m).values().size();
+            if (allocationPlan.assignments(m) != null) {
+                totalThreadsUsed += allocationPlan.assignments(m).values().stream().mapToInt(Integer::intValue).sum();
+                totalUsedMem += m.memoryBytes() * allocationPlan.assignments(m).values().size();
+            }
         }
         StringBuilder msg = new StringBuilder("Quality = ");
         msg.append(quality);

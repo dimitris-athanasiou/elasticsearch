@@ -55,7 +55,6 @@ class RandomizedAssignmentRounding {
     }
 
     AllocationPlan computePlan(Map<Tuple<Model, Node>, Integer> threadVars, Map<Tuple<Model, Node>, Double> assignmentVars) {
-        logger.debug(() -> new ParameterizedMessage("Random assignment rounding across [{}] rounds", rounds));
         AllocationPlan bestPlan = assignmentHolder.toPlan();
         double bestQuality = qualityFunction.apply(bestPlan);
 
@@ -64,15 +63,30 @@ class RandomizedAssignmentRounding {
         List<Tuple<Model, Node>> softAssignmentQueue = assignmentHolder.createSoftAssignmentQueue();
 
         if (softAssignmentQueue.isEmpty() == false) {
+            logger.debug(() -> new ParameterizedMessage("Random assignment rounding across [{}] rounds", rounds));
             for (int i = 0; i < rounds; i++) {
                 AssignmentHolder randomizedAssignments = new AssignmentHolder(assignmentHolder);
                 randomizedAssignments.doRandomizedRounding(softAssignmentQueue);
                 AllocationPlan randomizedPlan = randomizedAssignments.toPlan();
                 double quality = qualityFunction.apply(randomizedPlan);
+                boolean everBetter = false;
                 if (quality > bestQuality) {
+                    if (everBetter == false) {
+                        System.out.println("Randomized Solution Better");
+                        everBetter = true;
+                    }
                     bestPlan = randomizedPlan;
                     bestQuality = quality;
                 }
+            }
+        } else {
+            AllocationPlan initPlan = assignmentHolder.toPlan();
+            double quality = qualityFunction.apply(initPlan);
+            if (quality > bestQuality) {
+                bestPlan = initPlan;
+                System.out.println("Init Solution Better");
+            } else {
+                System.out.println("Eager Solution Better");
             }
         }
 
@@ -343,6 +357,9 @@ class RandomizedAssignmentRounding {
                             remainingNodeCores.compute(n, (node, remCores) -> remCores - assigningThreads);
                             remainingModelThreads.compute(m, (model, remModelThreads) -> remModelThreads - assigningThreads);
                             threads.put(assignment, assigningThreads);
+                            if (remainingModelThreads.get(m) == 0) {
+                                break;
+                            }
                         }
                     }
                 }

@@ -22,35 +22,32 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-@TestLogging(value = "org.elasticsearch.xpack.ml.inference.allocation.planning:INFO", reason = "test")
+@TestLogging(value = "org.elasticsearch.xpack.ml.inference.allocation.planning:DEBUG", reason = "test")
 public class OjalgoPlanSolverTests extends ESTestCase {
 
     public void testSolveGivenSingleNodeSingleModelThatDoesNotFitInMemory() {
         List<Node> nodes = List.of(new Node("n_1", 100, 4));
-        List<Model> models = List.of(new Model("m_1", 101, 4, Set.of()));
+        List<Model> models = List.of(new Model("m_1", 101, 4, 1, Set.of()));
         AllocationPlan allocationPlan = new OjalgoPlanSolver(nodes, models).computePlan();
-        allocationPlan.prettyPrint();
     }
 
     public void testSolveGivenSingleNodeSingleModelThatFitsFully() {
-        List<Node> nodes = List.of(new Node("n_1", 100, 4));
-        List<Model> models = List.of(new Model("m_1", 30, 4, Set.of()));
+        List<Node> nodes = List.of(new Node("n_1", 100, 8));
+        List<Model> models = List.of(new Model("m_1", 30, 4, 3, Set.of()));
         AllocationPlan allocationPlan = new OjalgoPlanSolver(nodes, models).computePlan();
         allocationPlan.prettyPrint();
     }
 
     public void testSolveGivenSingleNodeSingleModelThatFitsPartially() {
         List<Node> nodes = List.of(new Node("n_1", 100, 4));
-        List<Model> models = List.of(new Model("m_1", 30, 6, Set.of()));
+        List<Model> models = List.of(new Model("m_1", 30, 6, 1, Set.of()));
         AllocationPlan allocationPlan = new OjalgoPlanSolver(nodes, models).computePlan();
-        allocationPlan.prettyPrint();
     }
 
     public void testSolveGivenTwoNodesSingleModelThatAllocatesOnBothNodes() {
         List<Node> nodes = List.of(new Node("n_1", 100, 4), new Node("n_2", 100, 4));
-        List<Model> models = List.of(new Model("m_1", 30, 6, Set.of()));
+        List<Model> models = List.of(new Model("m_1", 30, 2, 3, Set.of()));
         AllocationPlan allocationPlan = new OjalgoPlanSolver(nodes, models).computePlan();
-        allocationPlan.prettyPrint();
     }
 
     public void testComplex() {
@@ -65,18 +62,18 @@ public class OjalgoPlanSolverTests extends ESTestCase {
                 new Node("n_6", ByteSizeValue.ofGb(8).getBytes(), 16)
             );
             List<Model> models = List.of(
-                new Model("m_1", ByteSizeValue.ofGb(4).getBytes(), 10, Set.of("n_1")),
-                new Model("m_2", ByteSizeValue.ofGb(2).getBytes(), 3, Set.of("n_3")),
-                new Model("m_3", ByteSizeValue.ofGb(3).getBytes(), 3, Set.of()),
-                new Model("m_4", ByteSizeValue.ofGb(1).getBytes(), 4, Set.of("n_3")),
-                new Model("m_5", ByteSizeValue.ofGb(6).getBytes(), 2, Set.of()),
-                new Model("m_6", ByteSizeValue.ofGb(1).getBytes(), 12, Set.of()),
-                new Model("m_7", ByteSizeValue.ofGb(1).getBytes() / 2, 12, Set.of("n_2")),
-                new Model("m_8", ByteSizeValue.ofGb(2).getBytes(), 4, Set.of()),
-                new Model("m_9", ByteSizeValue.ofGb(1).getBytes(), 4, Set.of()),
-                new Model("m_10", ByteSizeValue.ofGb(7).getBytes(), 7, Set.of(), 1.2),
-                new Model("m_11", ByteSizeValue.ofGb(2).getBytes(), 3, Set.of()),
-                new Model("m_12", ByteSizeValue.ofGb(1).getBytes(), 10, Set.of())
+                new Model("m_1", ByteSizeValue.ofGb(4).getBytes(), 10, 1, Set.of("n_1")),
+                new Model("m_2", ByteSizeValue.ofGb(2).getBytes(), 3, 1, Set.of("n_3")),
+                new Model("m_3", ByteSizeValue.ofGb(3).getBytes(), 3, 1, Set.of()),
+                new Model("m_4", ByteSizeValue.ofGb(1).getBytes(), 4, 1, Set.of("n_3")),
+                new Model("m_5", ByteSizeValue.ofGb(6).getBytes(), 2, 1, Set.of()),
+                new Model("m_6", ByteSizeValue.ofGb(1).getBytes(), 12, 1, Set.of()),
+                new Model("m_7", ByteSizeValue.ofGb(1).getBytes() / 2, 12, 1, Set.of("n_2")),
+                new Model("m_8", ByteSizeValue.ofGb(2).getBytes(), 4, 1, Set.of()),
+                new Model("m_9", ByteSizeValue.ofGb(1).getBytes(), 4, 1, Set.of()),
+                new Model("m_10", ByteSizeValue.ofGb(7).getBytes(), 7, 1, Set.of(), 1.2),
+                new Model("m_11", ByteSizeValue.ofGb(2).getBytes(), 3, 1, Set.of()),
+                new Model("m_12", ByteSizeValue.ofGb(1).getBytes(), 10, 1, Set.of())
             );
             OjalgoPlanSolver solver = new OjalgoPlanSolver(nodes, models);
             AllocationPlan allocationPlan = solver.computePlan();
@@ -96,18 +93,18 @@ public class OjalgoPlanSolverTests extends ESTestCase {
             new Node("n_6", ByteSizeValue.ofGb(8).getBytes(), 16)
         );
         List<Model> models = List.of(
-            new Model("m_1", ByteSizeValue.ofGb(4).getBytes(), 10, Set.of()),
-            new Model("m_2", ByteSizeValue.ofGb(2).getBytes(), 3, Set.of()),
-            new Model("m_3", ByteSizeValue.ofGb(3).getBytes(), 3, Set.of()),
-            new Model("m_4", ByteSizeValue.ofGb(1).getBytes(), 4, Set.of()),
-            new Model("m_5", ByteSizeValue.ofGb(6).getBytes(), 2, Set.of()),
-            new Model("m_6", ByteSizeValue.ofGb(1).getBytes(), 12, Set.of()),
-            new Model("m_7", ByteSizeValue.ofGb(1).getBytes() / 2, 12, Set.of()),
-            new Model("m_8", ByteSizeValue.ofGb(2).getBytes(), 4, Set.of()),
-            new Model("m_9", ByteSizeValue.ofGb(1).getBytes(), 4, Set.of()),
-            new Model("m_10", ByteSizeValue.ofGb(7).getBytes(), 7, Set.of(), 1.2),
-            new Model("m_11", ByteSizeValue.ofGb(2).getBytes(), 3, Set.of()),
-            new Model("m_12", ByteSizeValue.ofGb(1).getBytes(), 10, Set.of())
+            new Model("m_1", ByteSizeValue.ofGb(4).getBytes(), 10, 1, Set.of()),
+            new Model("m_2", ByteSizeValue.ofGb(2).getBytes(), 3, 1, Set.of()),
+            new Model("m_3", ByteSizeValue.ofGb(3).getBytes(), 3, 1, Set.of()),
+            new Model("m_4", ByteSizeValue.ofGb(1).getBytes(), 4, 1, Set.of()),
+            new Model("m_5", ByteSizeValue.ofGb(6).getBytes(), 2, 1, Set.of()),
+            new Model("m_6", ByteSizeValue.ofGb(1).getBytes(), 12, 1, Set.of()),
+            new Model("m_7", ByteSizeValue.ofGb(1).getBytes() / 2, 12, 1, Set.of()),
+            new Model("m_8", ByteSizeValue.ofGb(2).getBytes(), 4, 1, Set.of()),
+            new Model("m_9", ByteSizeValue.ofGb(1).getBytes(), 4, 1, Set.of()),
+            new Model("m_10", ByteSizeValue.ofGb(7).getBytes(), 7, 1, Set.of(), 1.2),
+            new Model("m_11", ByteSizeValue.ofGb(2).getBytes(), 3, 1, Set.of()),
+            new Model("m_12", ByteSizeValue.ofGb(1).getBytes(), 10, 1, Set.of())
         );
 
         AllocationPlan allocationPlan = AllocationPlan.builder(nodes, List.of()).build();
@@ -127,7 +124,7 @@ public class OjalgoPlanSolverTests extends ESTestCase {
         }
         List<Model> models = new ArrayList<>();
         for (int i = 0; i < 1000; i++) {
-            models.add(new Model("m_" + i, ByteSizeValue.ofMb(200).getBytes(), 2, Set.of()));
+            models.add(new Model("m_" + i, ByteSizeValue.ofMb(200).getBytes(), 2, 1, Set.of()));
         }
         OjalgoPlanSolver solver = new OjalgoPlanSolver(nodes, models);
         AllocationPlan allocationPlan = solver.computePlan();
@@ -139,7 +136,7 @@ public class OjalgoPlanSolverTests extends ESTestCase {
         List<Double> qualities = new ArrayList<>();
         List<Integer> nodeSizes = new ArrayList<>();
         List<Integer> modelSizes = new ArrayList<>();
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 1000; i++) {
             int scale = randomIntBetween(0, 10);
             double load = randomDoubleBetween(0.1, 1.0, true);
             List<Node> nodes = randomNodes(scale);
@@ -291,6 +288,7 @@ public class OjalgoPlanSolverTests extends ESTestCase {
                     "m_" + i,
                     randomLongBetween(ByteSizeValue.ofMb(100).getBytes(), ByteSizeValue.ofGb(10).getBytes()),
                     randomIntBetween(1, 32),
+                    randomIntBetween(1, 4),
                     Set.of(), // randomDouble() < 0.8 ? Set.of() : Set.of(randomFrom(nodes.stream().map(Node::id).toList())),
                     1.0 //randomDoubleBetween(0.5, 1.5, true)
                 )
@@ -344,7 +342,7 @@ public class OjalgoPlanSolverTests extends ESTestCase {
         long totalAvailableMem = nodes.stream().map(Node::availableMemoryBytes).mapToLong(Long::longValue).sum();
         long totalUsedMem = 0;
         for (Model m : models) {
-            totalThreadsRequired += m.threads();
+            totalThreadsRequired += m.instances();
             if (allocationPlan.assignments(m) != null) {
                 totalThreadsUsed += allocationPlan.assignments(m).values().stream().mapToInt(Integer::intValue).sum();
                 totalUsedMem += m.memoryBytes() * allocationPlan.assignments(m).values().size();
@@ -356,7 +354,7 @@ public class OjalgoPlanSolverTests extends ESTestCase {
         msg.append(ByteSizeValue.ofBytes(totalUsedMem));
         msg.append(") (total available memory = ");
         msg.append(ByteSizeValue.ofBytes(totalAvailableMem));
-        msg.append(") (threads = ");
+        msg.append(") (instances = ");
         msg.append(totalThreadsUsed);
         msg.append("/");
         msg.append(totalThreadsRequired);

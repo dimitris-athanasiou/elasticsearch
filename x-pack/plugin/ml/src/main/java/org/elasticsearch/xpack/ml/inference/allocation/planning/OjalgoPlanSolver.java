@@ -60,8 +60,8 @@ public class OjalgoPlanSolver implements PlanSolver {
     }
 
     public OjalgoPlanSolver(List<Node> nodes, List<Model> models, boolean useBinPackingOnly) {
-//        random = new Random(738921734L);
-         random = Randomness.get();
+         random = new Random(738921734L);
+//        random = Randomness.get();
 
         this.nodes = nodes.stream().sorted(Comparator.comparing(Node::id)).toList();
         long maxNodeMemory = nodes.stream().map(Node::availableMemoryBytes).max(Long::compareTo).orElse(0L);
@@ -74,7 +74,7 @@ public class OjalgoPlanSolver implements PlanSolver {
         coresPerNode = nodes.stream().collect(Collectors.toMap(Function.identity(), Node::cores));
         normalizedMemoryPerModel = this.models.stream()
             .collect(Collectors.toMap(Function.identity(), m -> m.memoryBytes() / (double) maxModelMemoryBytes));
-        threadsPerModel = this.models.stream().collect(Collectors.toMap(Function.identity(), Model::threads));
+        threadsPerModel = this.models.stream().collect(Collectors.toMap(Function.identity(), Model::instances));
 
         this.useBinPackingOnly = useBinPackingOnly;
     }
@@ -92,8 +92,8 @@ public class OjalgoPlanSolver implements PlanSolver {
         }
 
         Map<Tuple<Model, Node>, Double> assignmentValues = new HashMap<>();
-        Map<Tuple<Model, Node>, Integer> threadValues = new HashMap<>();
-        if (solveLinearProgram(weightsAndBinPackingPlan.v1(), threadValues, assignmentValues) == false) {
+        Map<Tuple<Model, Node>, Double> instanceValues = new HashMap<>();
+        if (solveLinearProgram(weightsAndBinPackingPlan.v1(), instanceValues, assignmentValues) == false) {
             return weightsAndBinPackingPlan.v2();
         }
 
@@ -104,7 +104,7 @@ public class OjalgoPlanSolver implements PlanSolver {
             models,
             this::computeQuality
         );
-        AllocationPlan allocationPlan = randomizedAssignmentRounding.computePlan(threadValues, assignmentValues);
+        AllocationPlan allocationPlan = randomizedAssignmentRounding.computePlan(instanceValues, assignmentValues);
 
         double quality = computeQuality(allocationPlan);
         double binPackingPlanQuality = computeQuality(weightsAndBinPackingPlan.v2());
@@ -122,7 +122,7 @@ public class OjalgoPlanSolver implements PlanSolver {
         return allocationPlan;
     }
 
-    private double weightForThreadVar(Model m, Node n, Map<Tuple<Model, Node>, Double> weights) {
+    private double weightForInstanceVar(Model m, Node n, Map<Tuple<Model, Node>, Double> weights) {
         return m.priority() * (1 + weights.get(Tuple.tuple(m, n)) - (m.memoryBytes() > n.availableMemoryBytes() ? 10 : 0)) - L1
             * normalizedMemoryPerModel.get(m) / maxNodeCores;
     }
@@ -136,17 +136,18 @@ public class OjalgoPlanSolver implements PlanSolver {
         Map<Tuple<Model, Node>, Double> weights = new HashMap<>();
         AllocationPlan.Builder allocationPlan = AllocationPlan.builder(nodes, models);
 
-        List<Model> orderedModels = models.stream().sorted(Comparator.comparingDouble(this::dsafModelOrder)).toList();
-        for (Model m : orderedModels) {
+        for (Model m : models.stream().sorted(Comparator.comparingDouble(this::dsafModelOrder)).toList()) {
             while (true) {
                 List<Node> orderedNodes = nodes.stream()
                     .sorted(Comparator.comparingDouble(n -> dsafNodeOrder(n, m, allocationPlan)))
                     .toList();
                 double lastW = w;
                 for (Node n : orderedNodes) {
-                    int coresOnNode = allocationPlan.getRemainingCores(n);
-                    int threads = Math.min(coresOnNode, allocationPlan.getRemainingThreads(m));
-                    if (coresOnNode > 0 && allocationPlan.canAssign(m, n, threads)) {
+                    int threads = Math.min(
+                        (allocationPlan.getRemainingCores(n) / m.threadsPerInstance()) * m.threadsPerInstance(),
+                        allocationPlan.getRemainingThreads(m)
+                    );
+                    if (threads > 0 && allocationPlan.canAssign(m, n, threads)) {
                         allocationPlan.assignModelToNode(m, n, threads);
                         weights.put(Tuple.tuple(m, n), w);
                         w -= dw;
@@ -195,7 +196,7 @@ public class OjalgoPlanSolver implements PlanSolver {
 
     private boolean solveLinearProgram(
         Map<Tuple<Model, Node>, Double> weights,
-        Map<Tuple<Model, Node>, Integer> threadValues,
+        Map<Tuple<Model, Node>, Double> instanceValues,
         Map<Tuple<Model, Node>, Double> assignmentValues
     ) {
         if ((nodes.size() + models.size()) * nodes.size() * models.size() > 10_000_000) {
@@ -207,32 +208,33 @@ public class OjalgoPlanSolver implements PlanSolver {
             new Optimisation.Options().abort(new CalendarDateDuration(100, CalendarDateUnit.SECOND))
         );
 
-        Map<Tuple<Model, Node>, Variable> threadVars = new HashMap<>();
+        Map<Tuple<Model, Node>, Variable> instanceVars = new HashMap<>();
 
         for (Model m : models) {
             for (Node n : nodes) {
-                Variable threadVar = model.addVariable("threads_of_model_" + m.id() + "_on_node_" + n.id())
+                Variable instanceVar = model.addVariable("instances_of_model_" + m.id() + "_on_node_" + n.id())
                     .integer(false)
                     .lower(0.0) // It is important not to set an upper bound here as it impacts memory negatively
-                    .weight(weightForThreadVar(m, n, weights));
-                threadVars.put(Tuple.tuple(m, n), threadVar);
+                    .weight(weightForInstanceVar(m, n, weights));
+                instanceVars.put(Tuple.tuple(m, n), instanceVar);
             }
         }
 
         for (Model m : models) {
-            model.addExpression("threads_of_model_" + m.id() + "_not_more_than_required")
+            model.addExpression("instances_of_model_" + m.id() + "_not_more_than_required")
                 .upper(threadsPerModel.get(m))
-                .setLinearFactorsSimple(varsForModel(m, threadVars));
+                .setLinearFactorsSimple(varsForModel(m, instanceVars));
         }
 
+        double[] threadsPerInstancePerModel = models.stream().mapToDouble(m -> m.threadsPerInstance()).toArray();
         for (Node n : nodes) {
             model.addExpression("threads_on_node_" + n.id() + "_not_more_than_cores")
                 .upper(coresPerNode.get(n))
-                .setLinearFactorsSimple(varsForNode(n, threadVars));
+                .setLinearFactors(varsForNode(n, instanceVars), Access1D.wrap(threadsPerInstancePerModel));
         }
 
         for (Node n : nodes) {
-            List<Variable> nodeAssignments = varsForNode(n, threadVars);
+            List<Variable> nodeAssignments = varsForNode(n, instanceVars);
             List<Double> modelMemories = new ArrayList<>(models.size());
             models.forEach(m -> modelMemories.add(normalizedMemoryPerModel.get(m) / (double) coresPerNode.get(n)));
             model.addExpression("used_memory_on_node_" + n.id() + "_not_more_than_available")
@@ -250,12 +252,15 @@ public class OjalgoPlanSolver implements PlanSolver {
         for (Model m : models) {
             for (Node n : nodes) {
                 Tuple<Model, Node> assignment = Tuple.tuple(m, n);
-                int threads = (int) Math.round(threadVars.get(assignment).getValue().doubleValue());
-                threadValues.put(assignment, threads);
-                assignmentValues.put(assignment, threads / (double) coresPerNode.get(n));
+                instanceValues.put(assignment, instanceVars.get(assignment).getValue().doubleValue());
+                assignmentValues.put(
+                    assignment,
+                    instanceVars.get(assignment).getValue().doubleValue() * m.threadsPerInstance() / (double) coresPerNode.get(n)
+                );
+
             }
         }
-        logger.debug(() -> "LP solver result =\n" + prettyPrintSolverResult(assignmentValues, threadValues));
+        logger.debug(() -> "LP solver result =\n" + prettyPrintSolverResult(assignmentValues, instanceValues));
         return true;
     }
 
@@ -285,10 +290,7 @@ public class OjalgoPlanSolver implements PlanSolver {
         return quality;
     }
 
-    private String prettyPrintSolverResult(
-        Map<Tuple<Model, Node>, Double> assignmentValues,
-        Map<Tuple<Model, Node>, Integer> threadValues
-    ) {
+    private String prettyPrintSolverResult(Map<Tuple<Model, Node>, Double> assignmentValues, Map<Tuple<Model, Node>, Double> threadValues) {
         StringBuilder msg = new StringBuilder();
         for (int i = 0; i < nodes.size(); i++) {
             Node n = nodes.get(i);
@@ -299,10 +301,10 @@ public class OjalgoPlanSolver implements PlanSolver {
                     msg.append(m.id());
                     msg.append(" (mem = ");
                     msg.append(ByteSizeValue.ofBytes(m.memoryBytes()));
-                    msg.append(") (threads = ");
+                    msg.append(") (instances = ");
                     msg.append(threadValues.get(Tuple.tuple(m, n)));
                     msg.append("/");
-                    msg.append(m.threads());
+                    msg.append(m.instances());
                     msg.append(") (y = ");
                     msg.append(assignmentValues.get(Tuple.tuple(m, n)));
                     msg.append(")");
@@ -321,7 +323,7 @@ public class OjalgoPlanSolver implements PlanSolver {
         long totalAvailableMem = nodes.stream().map(Node::availableMemoryBytes).mapToLong(Long::longValue).sum();
         long totalUsedMem = 0;
         for (Model m : models) {
-            totalThreadsRequired += m.threads();
+            totalThreadsRequired += m.instances() * m.threadsPerInstance();
             if (allocationPlan.assignments(m) != null) {
                 totalThreadsUsed += allocationPlan.assignments(m).values().stream().mapToInt(Integer::intValue).sum();
                 totalUsedMem += m.memoryBytes() * allocationPlan.assignments(m).values().size();

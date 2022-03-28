@@ -22,10 +22,10 @@ import java.util.stream.Collectors;
 
 public class AllocationPlan {
 
-    public record Model(String id, long memoryBytes, int threads, Set<String> currentNodes, double priority) {
+    public record Model(String id, long memoryBytes, int instances, int threadsPerInstance, Set<String> currentNodes, double priority) {
 
-        public Model(String id, long memoryBytes, int threads, Set<String> currentNodes) {
-            this(id, memoryBytes, threads, currentNodes, 1.0);
+        public Model(String id, long memoryBytes, int instances, int threadsPerInstance, Set<String> currentNodes) {
+            this(id, memoryBytes, instances, threadsPerInstance, currentNodes, 1.0);
         }
 
         @Override
@@ -96,7 +96,7 @@ public class AllocationPlan {
         for (int i = 0; i < nodes.size(); i++) {
             Node n = nodes.get(i);
             msg.append(n);
-            msg.append(" ->" );
+            msg.append(" ->");
             for (Tuple<Model, Integer> modelThreads : nodeToModel.get(n)
                 .stream()
                 .sorted(Comparator.comparing(x -> x.v1().id()))
@@ -110,7 +110,10 @@ public class AllocationPlan {
                     msg.append(" (threads = ");
                     msg.append(modelThreads.v2());
                     msg.append("/");
-                    msg.append(modelThreads.v1().threads());
+                    msg.append(modelThreads.v1().instances() * modelThreads.v1().threadsPerInstance());
+                    msg.append(")");
+                    msg.append(" (threads_per_instance = ");
+                    msg.append(modelThreads.v1().threadsPerInstance());
                     msg.append(")");
                 }
             }
@@ -153,7 +156,7 @@ public class AllocationPlan {
                     remainingNodeCores.put(n, n.cores());
                 }
                 assignments.put(m, nodeAssignments);
-                remainingModelThreads.put(m, m.threads());
+                remainingModelThreads.put(m, m.instances() * m.threadsPerInstance());
             }
         }
 
@@ -170,7 +173,9 @@ public class AllocationPlan {
         }
 
         boolean canAssign(Model model, Node node, int threads) {
-            return model.memoryBytes() <= remainingNodeMemory.get(node) && threads <= remainingNodeCores.get(node);
+            return model.memoryBytes() <= remainingNodeMemory.get(node)
+                && threads <= remainingNodeCores.get(node)
+                && threads % model.threadsPerInstance() == 0;
         }
 
         Builder assignModelToNode(Model model, Node node, int threads) {
@@ -179,6 +184,15 @@ public class AllocationPlan {
             }
             if (model.memoryBytes() > remainingNodeMemory.get(node)) {
                 throw new IllegalArgumentException("not enough memory on node [" + node.id() + "] to assign model [" + model.id() + "]");
+            }
+            if (threads % model.threadsPerInstance() != 0) {
+                throw new IllegalArgumentException(
+                    "cannot assign a number of threads ["
+                        + threads
+                        + "] that is not a multiple of model threads per instance ["
+                        + model.threadsPerInstance
+                        + "]"
+                );
             }
             if (threads > remainingNodeCores.get(node)) {
                 throw new IllegalArgumentException(

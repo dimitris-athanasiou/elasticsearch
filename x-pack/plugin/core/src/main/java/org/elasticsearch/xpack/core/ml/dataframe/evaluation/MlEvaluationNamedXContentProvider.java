@@ -13,6 +13,7 @@ import org.elasticsearch.xcontent.ParseField;
 import org.elasticsearch.xpack.core.ml.dataframe.evaluation.classification.Accuracy;
 import org.elasticsearch.xpack.core.ml.dataframe.evaluation.classification.AucRoc;
 import org.elasticsearch.xpack.core.ml.dataframe.evaluation.classification.Classification;
+import org.elasticsearch.xpack.core.ml.dataframe.evaluation.classification.EqualizedOdds;
 import org.elasticsearch.xpack.core.ml.dataframe.evaluation.classification.MulticlassConfusionMatrix;
 import org.elasticsearch.xpack.core.ml.dataframe.evaluation.classification.Precision;
 import org.elasticsearch.xpack.core.ml.dataframe.evaluation.classification.Recall;
@@ -126,6 +127,11 @@ public class MlEvaluationNamedXContentProvider implements NamedXContentProvider 
                 new ParseField(registeredMetricName(Classification.NAME, Recall.NAME)),
                 Recall::fromXContent
             ),
+            new NamedXContentRegistry.Entry(
+                EvaluationMetric.class,
+                new ParseField(registeredMetricName(Classification.NAME, EqualizedOdds.NAME)),
+                EqualizedOdds::fromXContent
+            ),
 
             // Regression metrics
             new NamedXContentRegistry.Entry(
@@ -204,6 +210,11 @@ public class MlEvaluationNamedXContentProvider implements NamedXContentProvider 
                 registeredMetricName(Classification.NAME, Precision.NAME),
                 Precision::new
             ),
+            new NamedWriteableRegistry.Entry(
+                EvaluationMetric.class,
+                registeredMetricName(Classification.NAME, EqualizedOdds.NAME),
+                EqualizedOdds::new
+            ),
             new NamedWriteableRegistry.Entry(EvaluationMetric.class, registeredMetricName(Classification.NAME, Recall.NAME), Recall::new),
             new NamedWriteableRegistry.Entry(
                 EvaluationMetric.class,
@@ -249,6 +260,11 @@ public class MlEvaluationNamedXContentProvider implements NamedXContentProvider 
                 EvaluationMetricResult.class,
                 registeredMetricName(Classification.NAME, Recall.NAME),
                 Recall.Result::new
+            ),
+            new NamedWriteableRegistry.Entry(
+                EvaluationMetricResult.class,
+                registeredMetricName(Classification.NAME, EqualizedOdds.NAME),
+                EqualizedOdds.Result::new
             ),
             new NamedWriteableRegistry.Entry(
                 EvaluationMetricResult.class,

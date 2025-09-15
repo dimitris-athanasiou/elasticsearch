@@ -33,10 +33,22 @@ public class ModelStatsTests extends AbstractWireSerializingTestCase<ModelStats>
         String service = modelStats.service();
         TaskType taskType = modelStats.taskType();
         long count = modelStats.count();
-        return switch (randomInt(2)) {
-            case 0 -> new ModelStats(randomValueOtherThan(service, ESTestCase::randomIdentifier), taskType, count);
-            case 1 -> new ModelStats(service, randomValueOtherThan(taskType, () -> randomFrom(TaskType.values())), count);
-            case 2 -> new ModelStats(service, taskType, randomValueOtherThan(count, ESTestCase::randomLong));
+        SemanticTextStats semanticTextStats = modelStats.semanticTextStats();
+        return switch (randomInt(3)) {
+            case 0 -> new ModelStats(randomValueOtherThan(service, ESTestCase::randomIdentifier), taskType, count, semanticTextStats);
+            case 1 -> new ModelStats(
+                service,
+                randomValueOtherThan(taskType, () -> randomFrom(TaskType.values())),
+                count,
+                semanticTextStats
+            );
+            case 2 -> new ModelStats(service, taskType, randomValueOtherThan(count, ESTestCase::randomLong), semanticTextStats);
+            case 3 -> new ModelStats(
+                service,
+                taskType,
+                count,
+                randomValueOtherThan(semanticTextStats, SemanticTextStatsTests::createRandomInstance)
+            );
             default -> throw new IllegalArgumentException();
         };
     }
@@ -56,6 +68,6 @@ public class ModelStatsTests extends AbstractWireSerializingTestCase<ModelStats>
     }
 
     public static ModelStats createRandomInstance() {
-        return new ModelStats(randomIdentifier(), randomFrom(TaskType.values()), randomLong());
+        return new ModelStats(randomIdentifier(), randomFrom(TaskType.values()), randomLong(), new SemanticTextStats());
     }
 }
